@@ -1,87 +1,169 @@
 import pygame
+import math
 import os
 
+# 1. 초기화
 pygame.init()
-
-# 화면 설정
-screen = pygame.display.set_mode((400, 300))
-pygame.display.set_caption("Animation Basics")
+WIDTH, HEIGHT = 400, 600
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Wizard Brick Breaker")
 clock = pygame.time.Clock()
 
-# ── 폴더 경로 및 이미지 로드 (이전 방식 유지) ─────
+# 폰트 설정
+font = pygame.font.SysFont("arial", 20)
+large_font = pygame.font.SysFont("arial", 30, bold=True)
+
+# ── [추가] 마법사 애니메이션 로드 ──────────────────
 current_path = os.path.dirname(__file__)
-sheet_path = os.path.join(current_path, 'Idle.png') # 스프라이트 시트 파일
+img_path = os.path.join(current_path, 'Idle.png')
 
 try:
-    sprite_sheet = pygame.image.load(sheet_path).convert_alpha()
-except pygame.error:
-    print(f"이미지를 찾을 수 없습니다: {sheet_path}")
-    pygame.quit()
-    exit()
-
-# ── ✂️ [핵심] 이미지 자르기 설정 ✂️ ──────────────
-# 1. 원본 이미지의 크기를 가져옵니다.
-sheet_width, sheet_height = sprite_sheet.get_size()
-
-# 2. 프레임 개수 설정 (보내주신 이미지는 가로로 6개입니다)
-# *만약 4개만 쓰고 싶다면 이 값을 4로 바꾸고 3번을 수정하면 됩니다.*
-frame_count = 6 
-
-# 3. 한 프레임의 가로 크기 계산
-frame_width = sheet_width // frame_count
-frame_height = sheet_height  # 세로는 전체를 다 씁니다.
-
-# 4. 자른 프레임들을 담을 리스트 생성
-frames = []
-
-# 5. [반복문] 원본 이미지에서 한 칸씩 이동하며 자릅니다.
-for i in range(frame_count):
-    # 자를 영역 정의: Rect(시작X, 시작Y, 가로길이, 세로길이)
-    crop_rect = pygame.Rect(i * frame_width, 0, frame_width, frame_height)
+    sheet = pygame.image.load(img_path).convert_alpha()
+    frame_count = 6
+    frame_width = sheet.get_width() // frame_count
+    frame_height = sheet.get_height()
     
-    # ✂️ 실제 자르기 작업 (subsurface)
-    frame_image = sprite_sheet.subsurface(crop_rect)
-    
-    # 자른 이미지를 리스트에 추가
-    frames.append(frame_image)
+    # 이미지 자르기
+    idle_frames = []
+    for i in range(frame_count):
+        crop_rect = pygame.Rect(i * frame_width, 0, frame_width, frame_height)
+        # 이미지가 작을 수 있어 1.5배 키웠습니다 (필요 없으면 제거)
+        frame_img = sheet.subsurface(crop_rect)
+        scaled_img = pygame.transform.scale(frame_img, (int(frame_width*1.5), int(frame_height*1.5)))
+        idle_frames.append(scaled_img)
+except:
+    print("Idle.png 파일을 찾을 수 없어 기본 도형으로 대체합니다.")
+    idle_frames = [pygame.Surface((50, 50))] # 에러 방지
 
-# ── 🎞️ 애니메이션 상태 변수 🎞️ ────────────────────
-current_frame_index = 0  # 현재 보여줄 프레임 번호 (0~5)
-animation_timer = 0      # 다음 프레임으로 넘어갈 시간을 재는 타이머
-# *애니메이션 속도 조절: 숫자가 클수록 느려집니다. (단위: 밀리초)*
-animation_speed = 100    # 100ms (0.1초) 마다 프레임 변경
+anim_index = 0
+anim_timer = 0
+anim_speed = 100 # 0.1초마다 프레임 변경
+# ────────────────────────────────────────────────
 
-# 캐릭터 위치 (화면 중앙)
-rect = frames[0].get_rect()
-rect.center = (200, 150)
+# 2. 게임 변수
+bricks = []
+balls = []
+last_shot_time = 0
+shot_interval = 200 
 
+current_angle = -math.pi / 2
+rotate_speed = 0.05 
+
+last_row_time = pygame.time.get_ticks()
+row_interval = 5000 
+round_count = 1
+
+def spawn_bricks(round_num):
+    for i in range(5):
+        if i % 2 == 0 or round_num % 2 == 0:
+            rect = pygame.Rect(i * 80 + 5, 70, 70, 30)
+            bricks.append([rect, round_num])
+
+spawn_bricks(round_count)
+
+# 3. 메인 루프
 running = True
 while running:
-    # 델타 타임(dt) 계산: 이전 프레임에서 경과된 시간 (밀리초)
-    dt = clock.tick(60) 
+    dt = clock.tick(60) # 델타 타임(ms)
+    current_time = pygame.time.get_ticks()
+    screen.fill((30, 30, 30))
+    
+    # 키보드 입력
+    keys = pygame.key.get_pressed()
+    if keys[pygame.K_LEFT]: current_angle -= rotate_speed
+    if keys[pygame.K_RIGHT]: current_angle += rotate_speed
+
+    if current_angle > -0.2: current_angle = -0.2
+    if current_angle < -math.pi + 0.2: current_angle = -math.pi + 0.2
 
     for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
+        if event.type == pygame.QUIT: running = False
 
-    # ── [핵심] 애니메이션 업데이트 로직 ──────────────
-    animation_timer += dt  # 경과 시간을 타이머에 더합니다.
+    # 애니메이션 업데이트
+    anim_timer += dt
+    if anim_timer >= anim_speed:
+        anim_timer = 0
+        anim_index = (anim_index + 1) % len(idle_frames)
 
-    # 타이머가 설정한 속도(100ms)를 넘어서면
-    if animation_timer >= animation_speed:
-        # 1. 타이머 초기화
-        animation_timer = 0
+    # 자동 발사
+    if current_time - last_shot_time > shot_interval:
+        dx = math.cos(current_angle) * 7
+        dy = math.sin(current_angle) * 7
+        # 발사 위치를 마법사 지팡이 근처(중앙 하단)로 설정
+        balls.append({"pos": [WIDTH // 2, HEIGHT - 55], "vel": [dx, dy]})
+        last_shot_time = current_time
+
+    # 타일 하강 (5초마다)
+    if current_time - last_row_time > row_interval:
+        round_count += 1
+        for br in bricks:
+            br[0].y += 40
+            if br[0].y >= HEIGHT - 80: running = False
+        spawn_bricks(round_count)
+        last_row_time = current_time
+
+    # 공 충돌 로직 (수정 없이 유지)
+    for b in balls[:]:
+        b["pos"][0] += b["vel"][0]
+        ball_rect_x = pygame.Rect(b["pos"][0]-5, b["pos"][1]-5, 10, 10)
+        for br in bricks[:]:
+            if ball_rect_x.colliderect(br[0]):
+                b["vel"][0] *= -1
+                if b["vel"][0] > 0: b["pos"][0] = br[0].right + 6
+                else: b["pos"][0] = br[0].left - 6
+                br[1] -= 1
+                if br[1] <= 0: bricks.remove(br)
+                break
+
+        b["pos"][1] += b["vel"][1]
+        ball_rect_y = pygame.Rect(b["pos"][0]-5, b["pos"][1]-5, 10, 10)
+        for br in bricks[:]:
+            if ball_rect_y.colliderect(br[0]):
+                b["vel"][1] *= -1
+                if b["vel"][1] > 0: b["pos"][1] = br[0].bottom + 6
+                else: b["pos"][1] = br[0].top - 6
+                br[1] -= 1
+                if br[1] <= 0: bricks.remove(br)
+                break
+
+        if b["pos"][0] <= 0 or b["pos"][0] >= WIDTH: b["vel"][0] *= -1
+        if b["pos"][1] <= 0: b["vel"][1] *= -1
+        if b["pos"][1] >= HEIGHT: balls.remove(b)
+
+    # --- [그리기 섹션] ---
+    round_txt = large_font.render(f"ROUND {round_count}", True, (255, 255, 255))
+    screen.blit(round_txt, (WIDTH // 2 - round_txt.get_width() // 2, 15))
+    
+    # 가이드 라인 (바닥선)
+    pygame.draw.line(screen, (100, 100, 100), (0, HEIGHT-80), (WIDTH, HEIGHT-80), 2)
+    
+    # ── [핵심] 마법사 그리기 ──────────────────────
+    current_img = idle_frames[anim_index]
+    # 발사 방향에 따라 이미지 좌우 반전 (선택 사항)
+    if math.cos(current_angle) > 0:
+        current_img = pygame.transform.flip(current_img, True, False)
         
-        # 2. 다음 프레임 번호로 넘어갑니다 (마지막이면 다시 0으로)
-        current_frame_index = (current_frame_index + 1) % frame_count
+    img_rect = current_img.get_rect(center=(WIDTH // 2, HEIGHT - 45))
+    screen.blit(current_img, img_rect)
+    # ──────────────────────────────────────────────
+    
+    # 조준선
+    lx = WIDTH // 2 + math.cos(current_angle) * 60
+    ly = (HEIGHT - 55) + math.sin(current_angle) * 60
+    pygame.draw.line(screen, (255, 255, 0), (WIDTH // 2, HEIGHT - 55), (lx, ly), 1)
 
-    # ── 그리기 ────────────────────────────────────
-    screen.fill((30, 30, 40))
-    
-    # [핵심] 현재 번호에 해당하는 자른 이미지를 화면에 그립니다.
-    current_image = frames[current_frame_index]
-    screen.blit(current_image, rect)
-    
+    for br in bricks:
+        pygame.draw.rect(screen, (200, 50, 50), br[0])
+        hp_txt = font.render(str(br[1]), True, (255, 255, 255))
+        screen.blit(hp_txt, (br[0].x + br[0].width//2 - hp_txt.get_width()//2, br[0].y + 5))
+
+    for b in balls:
+        pygame.draw.circle(screen, (255, 255, 255), (int(b["pos"][0]), int(b["pos"][1])), 5)
+
+    time_left = max(0, (row_interval - (current_time - last_row_time)) // 1000)
+    timer_txt = font.render(f"Next Down: {time_left}s", True, (255, 255, 0))
+    screen.blit(timer_txt, (10, HEIGHT - 30))
+
     pygame.display.flip()
 
 pygame.quit()
